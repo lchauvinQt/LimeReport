@@ -29,7 +29,7 @@
  ****************************************************************************/
 #ifndef LRTEXTITEM_H
 #define LRTEXTITEM_H
-#include <QGraphicsTextItem>
+#include <QGraphicsItem>
 #include <QtGui>
 #include <QLabel>
 #include "lritemdesignintf.h"
@@ -44,7 +44,6 @@ class TextItem : public LimeReport::ContentItemDesignIntf {
     Q_OBJECT
     Q_ENUMS(AutoWidth)
     Q_ENUMS(AngleType)
-    Q_ENUMS(ValueType)
     Q_PROPERTY(QString content READ content WRITE setContent)
     Q_PROPERTY(int margin READ marginSize WRITE setMarginSize)
     Q_PROPERTY(Qt::Alignment alignment READ alignment() WRITE setAlignment)
@@ -60,13 +59,10 @@ class TextItem : public LimeReport::ContentItemDesignIntf {
     Q_PROPERTY(bool trimValue READ trimValue WRITE setTrimValue)
     Q_PROPERTY(bool allowHTML READ allowHTML WRITE setAllowHTML)
     Q_PROPERTY(bool allowHTMLInFields READ allowHTMLInFields WRITE setAllowHTMLInFields)
-    Q_PROPERTY(QString format READ format WRITE setFormat)
-    Q_PROPERTY(ValueType valueType READ valueType WRITE setValueType)
 public:
 
     enum AutoWidth{NoneAutoWidth,MaxWordLength,MaxStringLength};
     enum AngleType{Angle0,Angle90,Angle180,Angle270,Angle45,Angle315};
-    enum ValueType{Default,DateTime,Double};
 
     void Init();
     TextItem(QObject* owner=0, QGraphicsItem* parent=0);
@@ -77,7 +73,6 @@ public:
     void setContent(const QString& value);
 
     //void setMarginSize(int value);
-
 
     void setAlignment(Qt::Alignment value);
     Qt::Alignment alignment(){return m_alignment;}
@@ -95,7 +90,7 @@ public:
 
     bool canBeSplitted(int height) const;
     bool isSplittable() const { return true;}
-    bool isEmpty() const{return m_text->isEmpty();}
+    bool isEmpty() const{return m_text->text().isEmpty();}
     BaseDesignIntf* cloneUpperPart(int height, QObject *owner, QGraphicsItem *parent);
     BaseDesignIntf* cloneBottomPart(int height, QObject *owner, QGraphicsItem *parent);
     BaseDesignIntf* createSameTypeItem(QObject* owner=0, QGraphicsItem* parent=0);
@@ -122,28 +117,22 @@ public:
     bool allowHTMLInFields() const;
     void setAllowHTMLInFields(bool allowHTMLInFields);
 
-    QString format() const;
-    void setFormat(const QString &format);
-
-    ValueType valueType() const;
-    void setValueType(const ValueType valueType);
-
 protected:
     void updateLayout();
     bool isNeedExpandContent() const;
     QString replaceBR(QString text);
     QString replaceReturns(QString text);
     int fakeMarginSize();
+
 private:
     void initText();
-    QString formatDateTime(const QDateTime &value);
-    QString formatNumber(const double value);
-    QString formatFieldValue();
 private:
     QString m_strText;
+    QRect m_rect;
 
     //QTextLayout m_layout;
-    QTextDocument* m_text;
+    //QTextDocument* m_text;
+    QStaticText * m_text;
     Qt::Alignment m_alignment;
     bool m_autoHeight;
     AutoWidth m_autoWidth;
@@ -153,9 +142,11 @@ private:
     bool m_trimValue;
     bool m_allowHTML;
     bool m_allowHTMLInFields;
+    QFont m_font;
 
-    QString m_format;
-    ValueType m_valueType;
+    QString parseNormalText(QString text);
+    bool isOverflow(QString text);
+    int lineToDisplay(QString text);
 };
 
 }

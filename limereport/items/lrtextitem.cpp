@@ -30,7 +30,6 @@
 #include <QtGui>
 #include <QTextLayout>
 #include <QtScript/QScriptEngine>
-#include <QLocale>
 #include <math.h>
 
 #include "lrpagedesignintf.h"
@@ -49,7 +48,7 @@ const QString xmlTag = "TextItem";
 LimeReport::BaseDesignIntf * createTextItem(QObject* owner, LimeReport::BaseDesignIntf*  parent){
     return new LimeReport::TextItem(owner,parent);
 }
-bool VARIABLE_IS_NOT_USED registred = LimeReport::DesignElementsFactory::instance().registerCreator(xmlTag, LimeReport::ItemAttribs(QObject::tr("Text Item"),"TextItem"), createTextItem);
+bool registred = LimeReport::DesignElementsFactory::instance().registerCreator(xmlTag, LimeReport::ItemAttribs(QObject::tr("Text Item"),"TextItem"), createTextItem);
 
 }
 
@@ -59,7 +58,8 @@ TextItem::TextItem(QObject *owner, QGraphicsItem *parent)
     : ContentItemDesignIntf(xmlTag,owner,parent), m_angle(Angle0), m_trimValue(true), m_allowHTML(false),
       m_allowHTMLInFields(false)
 {
-    m_text = new QTextDocument();
+    //m_text = new QTextDocument();
+    m_text= new QStaticText();
 
     PageItemDesignIntf* pageItem = dynamic_cast<PageItemDesignIntf*>(parent);
     BaseDesignIntf* parentItem = dynamic_cast<BaseDesignIntf*>(parent);
@@ -93,7 +93,7 @@ void TextItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* style, Q
     setupPainter(painter);
     prepareRect(painter,style,widget);
 
-    QSizeF tmpSize = rect().size()-m_textSize;
+    QSizeF tmpSize = rect().size()-m_textSize;   
 
     if (!painter->clipRegion().isEmpty()){
         QRegion clipReg=painter->clipRegion().xored(painter->clipRegion().subtracted(rect().toRect()));
@@ -102,16 +102,34 @@ void TextItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* style, Q
         painter->setClipRect(rect());
     }
 
+    bool isMultiLine = isOverflow(m_text->text());
+    int lineCount = 1;
+
+    if ( isMultiLine )
+        lineCount = lineToDisplay(m_text->text());
+
+    QFontMetrics metric(m_font);
+
     qreal hOffset = 0, vOffset=0;
     switch (m_angle){
         case Angle0:
             hOffset = fakeMarginSize();
-            if ((tmpSize.height()>0) && (m_alignment & Qt::AlignVCenter)){
-                vOffset = tmpSize.height()/2;
+
+            if ( isMultiLine && ( m_alignment & Qt::AlignVCenter) )
+            {
+                if( metric.height() *lineCount < height() )
+                {
+                    vOffset = height()/2 - metric.height()*lineCount/2;
+                }
             }
-            if ((tmpSize.height()>0) && (m_alignment & Qt::AlignBottom)) // allow html
+            else if ( (tmpSize.height()>0) && ( m_alignment & Qt::AlignVCenter) )
+                vOffset = tmpSize.height()/2;
+
+
+            if ( (tmpSize.height()>0) && ( m_alignment & Qt::AlignBottom ) )
                 vOffset = tmpSize.height();
             painter->translate(hOffset,vOffset);
+
         break;
         case Angle90:
             hOffset = width()-fakeMarginSize();
@@ -163,28 +181,50 @@ void TextItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* style, Q
         break;
     }
 
-//    for(QTextBlock it=m_text->begin();it!=m_text->end();it=it.next()){
-//        for (int i=0;i<it.layout()->lineCount();i++){
-//            painter->setOpacity(qreal(foregroundOpacity())/100);
-//            it.layout()->lineAt(i).draw(painter,QPointF(0,0));
-//        }
-//    }
-
     painter->setOpacity(qreal(foregroundOpacity())/100);
-
-    //m_text->setDefaultTextOption();
-    QAbstractTextDocumentLayout::PaintContext ctx;
-    ctx.palette.setColor(QPalette::Text, fontColor());
-    m_text->documentLayout()->draw(painter,ctx);
-
-//    m_layout.draw(ppainter,QPointF(marginSize(),0),);
-//    ppainter->setFont(transformToSceneFont(font()));
-//    QTextOption o;
-//    o.setAlignment(alignment());
-//    ppainter->drawText(rect(), content(), o);
+    painter->setFont(m_font);
+    painter->drawStaticText(rect().x(),rect().y(),*m_text);
 
     painter->restore();
     BaseDesignIntf::paint(painter, style, widget);
+}
+
+bool TextItem::isOverflow(QString text)
+{
+    QFontMetrics metric(m_font);
+    if ( metric.width(text) >= (width() - fakeMarginSize()*2 ) )
+    {
+        return true;
+    }
+    else
+        return false;
+}
+
+int TextItem::lineToDisplay(QString text)
+{
+    int count = 1;
+    QFontMetrics metric(m_font);
+
+    for ( count = 1; count < 5; count++)
+    {
+        if ( metric.width(text) / count < ( ( (int)width() - fakeMarginSize()*2 ) ) )
+            break;
+    }
+    count += text.count("<br/>");
+
+    if ( text.contains("<br/>") )
+    {
+        int pos = 0;
+        for (int i = 0; i < text.count("<br/>"); i++ )
+        {
+            pos = text.indexOf("<br/>",i);
+            if ( pos > 0 )
+                count--;
+            i = pos;
+        }
+    }
+
+    return count;
 }
 
 QString TextItem::content() const{
@@ -197,20 +237,25 @@ void TextItem::Init()
     m_alignment= Qt::AlignLeft|Qt::AlignTop;
     m_autoHeight=false;
 //    m_text->setDefaultFont(transformToSceneFont(font()));
+    m_font = transformToSceneFont(font());
     m_textSize=QSizeF();
     m_foregroundOpacity = 100;
-    m_valueType = Default;
 }
 
 void TextItem::setContent(const QString &value)
 {
+    m_text->setTextFormat(Qt::RichText);
     if (m_strText.compare(value)!=0){
         QString oldValue = m_strText;
         m_strText=value;
         if (allowHTML())
-            m_text->setHtml(replaceReturns(value.trimmed()));
+		{
+            m_text->setText(replaceReturns(value.trimmed()));
+		}
         else
-            m_text->setPlainText(value);
+		{
+            m_text->setText(parseNormalText(value) );
+		}
         //m_text->setTextWidth(width());
         //m_textSize=m_text->size();
         if (itemMode() == DesignMode){
@@ -276,6 +321,13 @@ QString TextItem::replaceReturns(QString text)
     return result;
 }
 
+QString TextItem::parseNormalText(QString text)
+{
+    QString result = this->replaceReturns(text);
+    result.replace("\t","&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;");
+    return result;
+}
+
 void TextItem::initText()
 {
     QTextOption to;
@@ -283,11 +335,14 @@ void TextItem::initText()
 
     if (m_autoWidth!=MaxStringLength)
         to.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    else to.setWrapMode(QTextOption::NoWrap);
+    else
+        to.setWrapMode(QTextOption::NoWrap);
 
-    m_text->setDocumentMargin(0);
-    m_text->setDefaultTextOption(to);
-    m_text->setDefaultFont(transformToSceneFont(font()));
+    //m_text->setDocumentMargin(0);
+    m_text->setTextOption(to);
+    //m_text->setDefaultFont(transformToSceneFont(font()));
+    m_font = transformToSceneFont(font());
+    m_text->prepare(QTransform(),transformToSceneFont(font()));
     if ((m_angle==Angle0)||(m_angle==Angle180)){
         m_text->setTextWidth(rect().width()-fakeMarginSize()*2);
     } else {
@@ -402,9 +457,13 @@ void TextItem::setAllowHTML(bool allowHTML)
         m_allowHTML = allowHTML;
         if (m_text){
             if (allowHTML)
-                m_text->setHtml(m_strText);
+            {
+                m_text->setText(m_strText);
+            }
             else
-                m_text->setPlainText(m_strText);
+            {
+                m_text->setText(m_strText);
+            }
             update();
         }
         notify("allowHTML",!m_allowHTML,allowHTML);
@@ -441,12 +500,14 @@ bool TextItem::isNeedUpdateSize(RenderPass pass) const
     return res;
 }
 
+
 void TextItem::setAlignment(Qt::Alignment value)
 {
     if (m_alignment!=value){
         Qt::Alignment oldValue = m_alignment;
         m_alignment=value;
         //m_layout.setTextOption(QTextOption(m_alignment));
+        m_text->setTextOption(QTextOption(m_alignment));
         if (!isLoading()){
             initText();
             update(rect());
@@ -497,32 +558,29 @@ void TextItem::setAutoWidth(TextItem::AutoWidth value)
 
 bool TextItem::canBeSplitted(int height) const
 {
-    return height>(m_text->begin().layout()->lineAt(0).height());
+    //return height>(m_text->begin().layout()->lineAt(0).height());
+    return height>(QFontMetrics(m_font).height()) ;
 }
 
 BaseDesignIntf *TextItem::cloneUpperPart(int height, QObject *owner, QGraphicsItem *parent)
 {
     int linesHeight=0;
+    initText();
     QString tmpText="";
     TextItem* upperPart = dynamic_cast<TextItem*>(cloneItem(itemMode(),owner,parent));
 
-    for (QTextBlock it=m_text->begin();it!=m_text->end();it=it.next()){
+    /*for (QTextBlock it=m_text->begin();it!=m_text->end();it=it.next()){
         for (int i=0;i<it.layout()->lineCount();i++){
           linesHeight+=it.layout()->lineAt(i).height();
-          if (linesHeight>(height-(fakeMarginSize()*2+borderLineSize()*2))) {
-              linesHeight-=it.layout()->lineAt(i).height();
-              goto loop_exit;
-          }
+          if (linesHeight>(height-(fakeMarginSize()*2+borderLineSize()*2))) {linesHeight-=it.layout()->lineAt(i).height(); goto loop_exit;}
           tmpText+=it.text().mid(it.layout()->lineAt(i).textStart(),it.layout()->lineAt(i).textLength())+'\n';
         }
-    }
+    }*/
     loop_exit:
-    tmpText.chop(1);
-
+    tmpText = tmpText.trimmed();
     upperPart->setHeight(linesHeight+fakeMarginSize()*2+borderLineSize()*2);
     QScopedPointer<HtmlContext> context(new HtmlContext(m_strText));
     upperPart->setContent(context->extendTextByTags(tmpText,0));
-    upperPart->initText();
     return upperPart;
 }
 
@@ -535,23 +593,23 @@ BaseDesignIntf *TextItem::cloneBottomPart(int height, QObject *owner, QGraphicsI
 
     QString tmpText="";
 
-    for (curBlock=m_text->begin();curBlock!=m_text->end();curBlock=curBlock.next()){
+    /*for (curBlock=m_text->begin();curBlock!=m_text->end();curBlock=curBlock.next()){
         for (curLine=0;curLine<curBlock.layout()->lineCount();curLine++){
             linesHeight+=curBlock.layout()->lineAt(curLine).height();
             if (linesHeight>(height-(fakeMarginSize()*2+borderLineSize()*2))) {goto loop_exit;}
         }
-    }
+    }*/
     loop_exit:;
-
     int textPos=0;
-    for (;curBlock!=m_text->end();curBlock=curBlock.next(),curLine=0){
+    /*for (;curBlock!=m_text->end();curBlock=curBlock.next()){
         for (;curLine<curBlock.layout()->lineCount();curLine++){
             if (tmpText=="") textPos= curBlock.layout()->lineAt(curLine).textStart();
             tmpText+=curBlock.text().mid(curBlock.layout()->lineAt(curLine).textStart(),
-              curBlock.layout()->lineAt(curLine).textLength()) + "\n";
+              curBlock.layout()->lineAt(curLine).textLength()) +"\n";
         }
-    }
-    tmpText.chop(1);
+    }*/
+
+    if (!m_strText.endsWith("\n")) tmpText = tmpText.trimmed();
 
     QScopedPointer<HtmlContext> context(new HtmlContext(m_strText));
     bottomPart->setContent(context->extendTextByTags(tmpText,textPos));
@@ -586,7 +644,9 @@ void TextItem::setTextItemFont(QFont value)
     if (font()!=value){
         QFont oldValue = font();
         setFont(value);
-        m_text->setDefaultFont(transformToSceneFont(value));
+        m_font = value; // store into local QFont the used font
+        //m_text->setDefaultFont(transformToSceneFont(value));
+        //m_text->prepare(QTransform(),transformToSceneFont(value));
         notify("font",oldValue,value);
     }
 }
